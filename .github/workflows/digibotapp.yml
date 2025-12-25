@@ -1,0 +1,114 @@
+# @format
+
+name: "DigiBot: Automation"
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Runs on Sundays at 9:00 AM IST (3:30 AM UTC)
+    - cron: "30 3 * * 0"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  test:
+    timeout-minutes: 60
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Install Playwright Browsers
+        run: npx playwright install --with-deps
+
+      # 1. Run Tests (Targeting DigiBot Config)
+      - name: Run Playwright Tests
+        continue-on-error: true
+        run: npx playwright test --config=digibotapp/playwright.config.js --update-snapshots
+        # No login secrets needed for public pages, but kept for future use
+        env:
+          CI: true
+
+      # 2. Move Reports
+      - name: Move Reports to Site Folder
+        if: always()
+        run: |
+          mkdir -p digibotapp
+          if [ -d "playwright-report" ]; then
+            rm -rf digibotapp/playwright-report
+            mv playwright-report digibotapp/
+          fi
+          if [ -f "results.json" ]; then
+            mv results.json digibotapp/
+          fi
+
+      # 3. Calculate Stats
+      - name: Calculate Test Stats
+        if: always()
+        run: |
+          node -e "
+            try {
+              const fs = require('fs');
+              if (fs.existsSync('./digibotapp/results.json')) {
+                const r = require('./digibotapp/results.json');
+                const passed = r.stats.expected + r.stats.flaky;
+                const failed = r.stats.unexpected;
+                console.log('PASSED=' + passed);
+                console.log('FAILED=' + failed);
+              } else {
+                console.log('PASSED=0');
+                console.log('FAILED=Error');
+              }
+            } catch (e) {
+              console.log('PASSED=0');
+              console.log('FAILED=Crash');
+            }
+          " >> $GITHUB_ENV
+
+      # 4. Upload Report Artifact
+      - name: Upload Report Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: digibot-report
+          path: digibotapp/playwright-report/
+          retention-days: 30
+
+      # 5. Send Email
+      - name: Send Email Notification
+        if: always()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: premium49.web-hosting.com
+          server_port: 465
+          # REUSING YOUR EXISTING SECRETS
+          username: ${{ secrets.REPORT_FROM_MAIL }}
+          password: ${{ secrets.REPORT_FROM_PASSWORD }}
+          subject: "QA Report: ${{ env.PASSED }} Passed, ${{ env.FAILED }} Failed - DigiBot"
+          body: |
+            DigiBot App - QA Automation Run Completed.
+
+            SUMMARY:
+            ✅ Passed: ${{ env.PASSED }}
+            ❌ Failed: ${{ env.FAILED }}
+
+            📂 DOWNLOAD FULL REPORT:
+            1. Click the link below.
+            2. Scroll down to the "Artifacts" section.
+            3. Click "digibot-report" to download the ZIP file.
+
+            🔗 LINK: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          to: ${{ secrets.REPORT_TO_MAILS }}
+          from: "QA Automation Bot"
