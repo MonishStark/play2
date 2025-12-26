@@ -112,7 +112,7 @@ test.describe("I Got Mind - Student Dashboard (Individual)", () => {
 		await page.getByRole("button", { name: "Login", exact: false }).click();
 
 		// Verify Login Success
-		await expect(page.locator("body")).toHaveClass(/logged-in/, {
+		await expect(page.locator("body")).toHaveClass("logged-in", {
 			timeout: 30000,
 		});
 		console.log("✅ Logged in successfully");
