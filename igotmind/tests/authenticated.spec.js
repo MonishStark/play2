@@ -3,8 +3,13 @@
 const { test, expect } = require("@playwright/test");
 require("dotenv").config();
 
+const CREDENTIALS = {
+	email: process.env.TEST_EMAIL,
+	password: process.env.TEST_PASSWORD,
+};
+
 // =============================================================================
-// 1. HELPER: The "Swiss Army Knife" for Stability
+// 1. HELPER: The "Swiss Army Knife" for Stability (Updated from our recent wins)
 // =============================================================================
 async function performSafeScroll(page) {
 	// A. STEALTH
@@ -13,27 +18,24 @@ async function performSafeScroll(page) {
 	});
 
 	// B. FONTS
+	console.log("🎨 Waiting for custom fonts...");
 	await page.evaluate(async () => {
 		await document.fonts.ready;
 	});
 
-	// C. CSS INJECTION (Visual Fixes)
+	// C. CSS INJECTION (Your reliable old code + Widget Fixes)
 	await page.addStyleTag({
 		content: `
-      /* Force Hide Overlays */
-      #moove_gdpr_cookie_info_bar, .gdpr-infobar-wrapper { display: none !important; }
-      
-      /* Unlock Body Scroll */
-      body.gdpr-infobar-visible { overflow: visible !important; height: auto !important; }
-
-      /* Force Content Visibility */
-      .elementor-invisible, .elementor-widget-container, iframe {
-        opacity: 1 !important;
-        visibility: visible !important;
-        animation: none !important;
+      /* Your Original Fixes */
+      #moove_gdpr_cookie_info_bar { display: none !important; } 
+      .slick-track { visibility: hidden !important; }
+      .clock-animation { visibility: hidden !important; }
+      *, *::before, *::after {
+          animation-duration: 0s !important;
+          transition-duration: 0s !important;
       }
 
-      /* Fix 3rd Party Widgets */
+      /* Widget Fixes (Calendly/PayPal) */
       .calendly-spinner { display: none !important; }
       div[class*="styles-module_campaigns_widget"],
       div[class*="campaigns_widget"],
@@ -44,6 +46,9 @@ async function performSafeScroll(page) {
         display: block !important;
         min-height: 500px !important;
       }
+      
+      /* Force body unlock for mobile */
+      body.gdpr-infobar-visible { overflow: visible !important; height: auto !important; }
     `,
 	});
 
@@ -59,12 +64,12 @@ async function performSafeScroll(page) {
 	});
 
 	// E. BUFFER
-	console.log("⏳ Waiting 10s for dashboard widgets...");
-	await page.waitForTimeout(10000);
+	console.log("⏳ Waiting 5s for widgets...");
+	await page.waitForTimeout(5000);
 }
 
 // =============================================================================
-// 2. CONFIGURATION
+// 2. PAGES TO AUDIT
 // =============================================================================
 const internalPages = [
 	{ name: "Auth_01_Courses_List", path: "/my-courses/my-courses/" },
@@ -80,89 +85,57 @@ const internalPages = [
 	{ name: "Auth_11_Orders", path: "/my-courses/orders/" },
 ];
 
-test.describe("I Got Mind - Student Dashboard", () => {
+test.describe("I Got Mind - Student Dashboard (Individual)", () => {
 	// ===========================================================================
-	// 3. SETUP: Authentication (Network Block Strategy)
+	// 3. SETUP: Log In Fresh BEFORE EVERY TEST
 	// ===========================================================================
-	test.beforeAll(async ({ browser }) => {
-		console.log("🔑 Setting up authentication...");
-
-		const context = await browser.newContext({
-			storageState: undefined,
-			viewport: { width: 1920, height: 1080 },
-		});
-
-		const page = await context.newPage();
-
-		// 🚀 STEP 1: NETWORK BLOCK (The Ultimate Fix)
-		// We block the GDPR plugin script from loading entirely.
-		// No Script = No Bar = No Locked Screen.
-		await page.route("**/*moove-gdpr*", (route) => route.abort());
-
-		// Stealth
-		await page.addInitScript(() => {
-			Object.defineProperty(navigator, "webdriver", { get: () => undefined });
-		});
+	test.beforeEach(async ({ page }) => {
+		test.setTimeout(120000); // Give each test 2 minutes
+		console.log("🔑 Logging in...");
 
 		await page.goto("/my-courses/");
 
-		// 🚀 STEP 2: Backup Cleanup
-		// Just in case the class is added server-side, we strip it.
-		await page.evaluate(() =>
-			document.body.classList.remove("gdpr-infobar-visible")
-		);
-
-		// 🚀 STEP 3: "Human" Typing (Reliable)
-		await page.getByLabel("Email Address", { exact: false }).click();
-		await page
-			.getByLabel("Email Address", { exact: false })
-			.pressSequentially(process.env.TEST_EMAIL, { delay: 100 });
-
-		await page.getByLabel("Password", { exact: false }).click();
-		await page
-			.getByLabel("Password", { exact: false })
-			.pressSequentially(process.env.TEST_PASSWORD, { delay: 100 });
-
-		// 🚀 STEP 4: Force Click
-		// We use { force: true } to tell Playwright "I don't care if something is covering this, click it anyway."
-		console.log("🖱️ Clicking Login...");
-		await page
-			.getByRole("button", { name: "Login", exact: false })
-			.click({ force: true });
-
-		// Verification
-		console.log("⏳ Waiting for login...");
-		await expect(page.locator("body")).toHaveClass(/logged-in/, {
-			timeout: 45000,
+		// Inject CSS immediately to kill the cookie bar
+		await page.addStyleTag({
+			content: `#moove_gdpr_cookie_info_bar, .gdpr-infobar-wrapper { display: none !important; }`,
 		});
 
-		// Save State
-		await context.storageState({ path: "storageState.json" });
-		console.log("✅ Authentication state saved");
+		// YOUR OLD LOGIC: Human Typing
+		await page
+			.getByLabel("Email Address", { exact: false })
+			.pressSequentially(CREDENTIALS.email, { delay: 100 });
+		await page
+			.getByLabel("Password", { exact: false })
+			.pressSequentially(CREDENTIALS.password, { delay: 100 });
 
-		await context.close();
+		// YOUR OLD LOGIC: Click the Button
+		await page.getByRole("button", { name: "Login", exact: false }).click();
+
+		// Verify Login Success
+		await expect(page.locator("body")).toHaveClass(/logged-in/, {
+			timeout: 30000,
+		});
+		console.log("✅ Logged in successfully");
 	});
 
 	// ===========================================================================
-	// 4. TEST LOOP
+	// 4. INDIVIDUAL TESTS
 	// ===========================================================================
-	test.describe("Authenticated Visual Checks", () => {
-		test.use({ storageState: "storageState.json" });
+	for (const internalPage of internalPages) {
+		test(`Visual: ${internalPage.name}`, async ({ page }) => {
+			console.log(`➡️ Navigating to: ${internalPage.name}`);
 
-		for (const internalPage of internalPages) {
-			test(`Visual: ${internalPage.name}`, async ({ page }) => {
-				console.log(`➡️ Testing: ${internalPage.name}`);
+			await page.goto(internalPage.path);
 
-				await page.goto(internalPage.path);
+			await page.waitForLoadState("domcontentloaded");
 
-				await page.waitForLoadState("domcontentloaded");
+			// Run the helper to ensure widgets load and layout is stable
+			await performSafeScroll(page);
 
-				await performSafeScroll(page);
-
-				await expect(page).toHaveScreenshot(`${internalPage.name}.png`, {
-					fullPage: true,
-				});
+			await expect(page).toHaveScreenshot(`${internalPage.name}.png`, {
+				fullPage: true,
+				animations: "disabled",
 			});
-		}
-	});
+		});
+	}
 });
