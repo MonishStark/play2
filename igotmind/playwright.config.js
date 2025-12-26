@@ -1,5 +1,3 @@
-/** @format */
-
 const { defineConfig, devices } = require("@playwright/test");
 
 module.exports = defineConfig({
@@ -38,13 +36,7 @@ module.exports = defineConfig({
 		{ name: "Desktop Chrome", use: { ...devices["Desktop Chrome"] } },
 		{
 			name: "Desktop Safari",
-			use: {
-				browserName: "chromium",
-				channel: "chrome",
-				viewport: { width: 1280, height: 720 },
-				userAgent:
-					"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-			},
+			use: { ...devices["Desktop Safari"] },
 		},
 
 		{
