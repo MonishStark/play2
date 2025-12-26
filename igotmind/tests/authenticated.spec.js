@@ -18,10 +18,9 @@ async function performSafeScroll(page) {
 		await document.fonts.ready;
 	});
 
-	// C. CSS INJECTION (Visual Fixes Only)
+	// C. CSS INJECTION
 	await page.addStyleTag({
 		content: `
-      /* 1. FORCE HIDE Cookie Bar & Overlays */
       #moove_gdpr_cookie_info_bar, .gdpr-infobar-wrapper, .moove-gdpr-info-bar-hidden { 
         display: none !important; 
         pointer-events: none !important; 
@@ -29,8 +28,6 @@ async function performSafeScroll(page) {
         visibility: hidden !important;
         z-index: -9999 !important;
       }
-      
-      /* 2. UNLOCK Body Scroll (Critical for Mobile) */
       body.gdpr-infobar-visible { 
         overflow: visible !important; 
         position: static !important;
@@ -38,15 +35,11 @@ async function performSafeScroll(page) {
         height: auto !important;
         touch-action: auto !important;
       }
-
-      /* 3. Force Elementor & Iframes */
       .elementor-invisible, .elementor-widget-container, iframe {
         opacity: 1 !important;
         visibility: visible !important;
         animation: none !important;
       }
-
-      /* 4. Fix Widgets */
       .calendly-spinner { display: none !important; }
       div[class*="styles-module_campaigns_widget"],
       div[class*="campaigns_widget"],
@@ -103,12 +96,11 @@ const internalPages = [
 
 test.describe("I Got Mind - Student Dashboard", () => {
 	// ===========================================================================
-	// 3. SETUP: Authentication
+	// 3. SETUP: Authentication (The Fix is Here)
 	// ===========================================================================
 	test.beforeAll(async ({ browser }) => {
 		console.log("🔑 Setting up authentication...");
 
-		// Create new context (Ignore previous state)
 		const context = await browser.newContext({
 			storageState: undefined,
 			viewport: { width: 1920, height: 1080 },
@@ -123,12 +115,10 @@ test.describe("I Got Mind - Student Dashboard", () => {
 
 		await page.goto("/my-courses/");
 
-		// 🚀 STEP 1: Wait for Load
+		// 🚀 STEP 1: Wait for Network Idle
 		await page.waitForLoadState("networkidle");
 
-		// 🚀 STEP 2: Aggressive "Body Cleaner"
-		// This constantly removes the blocking class every 500ms while we type
-		// This ensures that even if the site adds it back, we delete it again immediately.
+		// 🚀 STEP 2: Constant Body Cleaning (Keep the bar away)
 		const intervalId = setInterval(async () => {
 			try {
 				await page.evaluate(() =>
@@ -137,32 +127,50 @@ test.describe("I Got Mind - Student Dashboard", () => {
 			} catch (e) {}
 		}, 500);
 
-		// 🚀 STEP 3: "Human Typing"
-		// Click focused the field first, then type slowly
+		// 🚀 STEP 3: "Slow Human" Typing
+		// We wait slightly after typing to let the form validation scripts turn "green"
 		await page.getByLabel("Email Address", { exact: false }).click();
 		await page
 			.getByLabel("Email Address", { exact: false })
 			.pressSequentially(process.env.TEST_EMAIL, { delay: 100 });
+		await page.waitForTimeout(500); // Wait for validation
 
 		await page.getByLabel("Password", { exact: false }).click();
 		await page
 			.getByLabel("Password", { exact: false })
 			.pressSequentially(process.env.TEST_PASSWORD, { delay: 100 });
+		await page.waitForTimeout(500); // Wait for validation
 
-		// 🚀 STEP 4: JS Submit (Bypasses Overlays)
-		// We execute the click directly in JavaScript. It cannot be blocked by invisible divs.
-		console.log("⚡ Triggering JS Submit...");
-		await page.$eval('input[type="submit"], button[type="submit"]', (btn) => {
-			btn.click();
-		});
+		// 🚀 STEP 4: Standard Click with Stability Check
+		console.log("🖱️ Clicking Login...");
+		const loginBtn = page
+			.locator('input[type="submit"], button[type="submit"]')
+			.first();
+
+		// Ensure button is ready to receive clicks
+		await loginBtn.waitFor({ state: "visible", timeout: 5000 });
+
+		// Standard click (triggers all site scripts)
+		await loginBtn.click();
 
 		// Verify Login Success
 		console.log("⏳ Waiting for login redirect...");
-		await expect(page.locator("body")).toHaveClass(/logged-in/, {
-			timeout: 60000,
-		});
 
-		// Stop the cleaner loop
+		// We add a check for Error Messages to debug if it fails again
+		try {
+			await expect(page.locator("body")).toHaveClass(/logged-in/, {
+				timeout: 45000,
+			});
+		} catch (error) {
+			// If login fails, check if there is a visible error message on screen
+			const errorMsg = await page
+				.locator(".lifterlms-error, .error, .alert")
+				.textContent()
+				.catch(() => "No error text found");
+			console.log("⚠️ Login Failed. Screen says: ", errorMsg);
+			throw error; // Re-throw to fail the test properly
+		}
+
 		clearInterval(intervalId);
 
 		// Save State
