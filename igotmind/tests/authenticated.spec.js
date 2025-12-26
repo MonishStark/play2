@@ -76,7 +76,7 @@ async function performSafeScroll(page) {
 		window.scrollTo(0, 0);
 	});
 
-	// E. Final Buffer: Wait for dashboard widgets
+	// E. Final Buffer
 	console.log("⏳ Waiting 10s for dashboard widgets...");
 	await page.waitForTimeout(10000);
 }
@@ -116,6 +116,19 @@ test.describe("I Got Mind - Student Dashboard", () => {
 
 		await page.goto("/my-courses/");
 
+		// 🚀 CRITICAL FIX: Hide Cookie Bar BEFORE clicking Login
+		// This prevents the "Login button is covered" error on Mobile/Safari
+		await page.addStyleTag({
+			content: `
+        #moove_gdpr_cookie_info_bar, 
+        .moove-gdpr-info-bar-hidden,
+        .gdpr-infobar-wrapper { 
+           display: none !important; 
+           pointer-events: none !important;
+        }
+      `,
+		});
+
 		// Fill credentials
 		await page
 			.getByLabel("Email Address", { exact: false })
@@ -124,12 +137,11 @@ test.describe("I Got Mind - Student Dashboard", () => {
 			.getByLabel("Password", { exact: false })
 			.fill(process.env.TEST_PASSWORD);
 
-		// 🚀 NEW: Robust Button Selector
-		// This targets the actual form button, avoiding header links
+		// Click Login (Force click to punch through any remaining overlays)
 		const loginBtn = page
 			.locator('input[type="submit"], button[type="submit"]')
 			.first();
-		await loginBtn.click();
+		await loginBtn.click({ force: true });
 
 		// Wait for redirect verification
 		await expect(page.locator("body")).toHaveClass(/logged-in/, {
