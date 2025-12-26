@@ -3,17 +3,7 @@
 const { test, expect } = require("@playwright/test");
 require("dotenv").config();
 
-// 1. CONFIG: Stealth User Agent
-test.use({
-	userAgent:
-		"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-	locale: "en-US",
-	permissions: ["geolocation"],
-	bypassCSP: true,
-	ignoreHTTPSErrors: true,
-});
-
-// 2. HELPER: Safe Scroll + Fonts + Layout Fix (The "Winning" Logic)
+// 1. HELPER: Safe Scroll + Fonts + Layout Fix (The "Winning" Logic)
 async function performSafeScroll(page) {
 	// A.1 STEALTH INJECTION
 	await page.addInitScript(() => {
@@ -92,7 +82,7 @@ async function performSafeScroll(page) {
 	await page.waitForTimeout(10000);
 }
 
-// 3. PAGES TO TEST
+// 2. PAGES TO TEST
 const internalPages = [
 	{ name: "Auth_01_Courses_List", path: "/my-courses/my-courses/" },
 	{ name: "Auth_02_Grades", path: "/my-courses/my-grades/" },
@@ -108,18 +98,19 @@ const internalPages = [
 ];
 
 test.describe("I Got Mind - Student Dashboard", () => {
-	// 4. SETUP: Login once
+	// 3. SETUP: Login once
 	test.beforeAll(async ({ browser }) => {
 		console.log("🔑 Setting up authentication...");
 
-		// Create a fresh context with specific viewport (optional but good for consistency)
+		// 🔴 FIX: Explicitly ignore storageState here to avoid "File Not Found" error
 		const context = await browser.newContext({
+			storageState: undefined,
 			viewport: { width: 1920, height: 1080 },
 		});
 
 		const page = await context.newPage();
 
-		// Stealth Injection for Login Page too
+		// Stealth Injection for Login Page
 		await page.addInitScript(() => {
 			Object.defineProperty(navigator, "webdriver", { get: () => undefined });
 		});
@@ -140,17 +131,17 @@ test.describe("I Got Mind - Student Dashboard", () => {
 			timeout: 30000,
 		});
 
-		// Save state
+		// Save state so the OTHER tests can use it
 		await context.storageState({ path: "storageState.json" });
 		console.log("✅ Authentication state saved");
 
 		await context.close();
 	});
 
-	// 5. USE SAVED STATE
+	// 4. USE SAVED STATE (Applies to all tests below)
 	test.use({ storageState: "storageState.json" });
 
-	// 6. RUN TESTS
+	// 5. RUN TESTS
 	for (const internalPage of internalPages) {
 		test(`Visual: ${internalPage.name}`, async ({ page }) => {
 			console.log(`➡️ Testing: ${internalPage.name}`);
