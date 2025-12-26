@@ -3,7 +3,7 @@
 const { test, expect } = require("@playwright/test");
 require("dotenv").config();
 
-// 1. HELPER: Safe Scroll + Fonts + Layout Fix (The "Winning" Logic)
+// 1. HELPER: Safe Scroll + Fonts + Layout Fix
 async function performSafeScroll(page) {
 	// A.1 STEALTH INJECTION
 	await page.addInitScript(() => {
@@ -42,9 +42,8 @@ async function performSafeScroll(page) {
         visibility: visible !important;
       }
 
-      /* 4. WIDGET FIXES (Calendly/PayPal/Video) */
+      /* 4. WIDGET FIXES */
       .calendly-spinner { display: none !important; }
-      
       div[class*="styles-module_campaigns_widget"],
       div[class*="campaigns_widget"],
       .calendly-inline-widget, 
@@ -52,7 +51,7 @@ async function performSafeScroll(page) {
         opacity: 1 !important;
         visibility: visible !important;
         display: block !important;
-        min-height: 500px !important; /* Forces layout to stay open */
+        min-height: 500px !important;
       }
     `,
 	});
@@ -69,7 +68,6 @@ async function performSafeScroll(page) {
 	await page.evaluate(async () => {
 		const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 		const totalHeight = document.body.scrollHeight;
-
 		for (let i = 0; i < totalHeight; i += 200) {
 			window.scrollTo(0, i);
 			await delay(100);
@@ -77,7 +75,7 @@ async function performSafeScroll(page) {
 		window.scrollTo(0, 0);
 	});
 
-	// E. Final Buffer: Wait for external content
+	// E. Final Buffer
 	console.log("⏳ Waiting 10s for dashboard widgets...");
 	await page.waitForTimeout(10000);
 }
@@ -98,26 +96,25 @@ const internalPages = [
 ];
 
 test.describe("I Got Mind - Student Dashboard", () => {
-	// 3. SETUP: Login once
+	// 3. SETUP: Runs FIRST. Does NOT use storageState (because it creates it).
 	test.beforeAll(async ({ browser }) => {
 		console.log("🔑 Setting up authentication...");
 
-		// 🔴 FIX: Explicitly ignore storageState here to avoid "File Not Found" error
+		// Create a generic context (No storageState loaded here)
 		const context = await browser.newContext({
-			storageState: undefined,
 			viewport: { width: 1920, height: 1080 },
 		});
 
 		const page = await context.newPage();
 
-		// Stealth Injection for Login Page
+		// Stealth Injection
 		await page.addInitScript(() => {
 			Object.defineProperty(navigator, "webdriver", { get: () => undefined });
 		});
 
 		await page.goto("/my-courses/");
 
-		// Fill credentials
+		// Login Logic
 		await page
 			.getByLabel("Email Address", { exact: false })
 			.fill(process.env.TEST_EMAIL);
@@ -126,35 +123,35 @@ test.describe("I Got Mind - Student Dashboard", () => {
 			.fill(process.env.TEST_PASSWORD);
 		await page.getByRole("button", { name: "Login", exact: false }).click();
 
-		// Verify login success
 		await expect(page.locator("body")).toHaveClass(/logged-in/, {
 			timeout: 30000,
 		});
 
-		// Save state so the OTHER tests can use it
+		// Save the file for the next step
 		await context.storageState({ path: "storageState.json" });
 		console.log("✅ Authentication state saved");
 
 		await context.close();
 	});
 
-	// 4. USE SAVED STATE (Applies to all tests below)
-	test.use({ storageState: "storageState.json" });
+	// 4. NESTED GROUP: Only THESE tests use the file we just created
+	test.describe("Authenticated Visual Checks", () => {
+		// 🚀 KEY FIX: This setting now applies ONLY to this inner block
+		test.use({ storageState: "storageState.json" });
 
-	// 5. RUN TESTS
-	for (const internalPage of internalPages) {
-		test(`Visual: ${internalPage.name}`, async ({ page }) => {
-			console.log(`➡️ Testing: ${internalPage.name}`);
-			await page.goto(internalPage.path);
+		for (const internalPage of internalPages) {
+			test(`Visual: ${internalPage.name}`, async ({ page }) => {
+				console.log(`➡️ Testing: ${internalPage.name}`);
+				await page.goto(internalPage.path);
 
-			await page.waitForLoadState("domcontentloaded");
+				await page.waitForLoadState("domcontentloaded");
 
-			// Run the robust "Winning" Scroll function
-			await performSafeScroll(page);
+				await performSafeScroll(page);
 
-			await expect(page).toHaveScreenshot(`${internalPage.name}.png`, {
-				fullPage: true,
+				await expect(page).toHaveScreenshot(`${internalPage.name}.png`, {
+					fullPage: true,
+				});
 			});
-		});
-	}
+		}
+	});
 });
