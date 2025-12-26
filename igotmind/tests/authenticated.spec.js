@@ -3,7 +3,7 @@
 const { test, expect } = require("@playwright/test");
 require("dotenv").config();
 
-// 1. HELPER: Safe Scroll + Fonts + Layout Fix (The "Winning" Logic)
+// 1. HELPER: Safe Scroll + Fonts + Layout Fix
 async function performSafeScroll(page) {
 	// A. STEALTH: Remove "Robot" flags
 	await page.addInitScript(() => {
@@ -16,11 +16,21 @@ async function performSafeScroll(page) {
 		await document.fonts.ready;
 	});
 
-	// C. LAYOUT: Force Widgets to be visible & consistent
+	// C. LAYOUT: Force Widgets to be visible
 	await page.addStyleTag({
 		content: `
       /* Kill Cookie Bar Visually */
-      #moove_gdpr_cookie_info_bar, .gdpr-infobar-wrapper { display: none !important; }
+      #moove_gdpr_cookie_info_bar, .gdpr-infobar-wrapper { 
+        display: none !important; 
+        pointer-events: none !important; 
+        opacity: 0 !important;
+      }
+      
+      /* Force body to behave even if class exists */
+      body.gdpr-infobar-visible { 
+        overflow: visible !important; 
+        padding-bottom: 0 !important; 
+      }
 
       /* Force Elementor & Iframes */
       .elementor-invisible, .elementor-widget-container, iframe {
@@ -51,7 +61,7 @@ async function performSafeScroll(page) {
 		});
 	});
 
-	// E. SCROLL: Smooth scroll to trigger lazy loads
+	// E. SCROLL
 	await page.evaluate(async () => {
 		const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 		const totalHeight = document.body.scrollHeight;
@@ -62,7 +72,7 @@ async function performSafeScroll(page) {
 		window.scrollTo(0, 0);
 	});
 
-	// F. BUFFER: Wait for external widgets
+	// F. BUFFER
 	console.log("⏳ Waiting 10s for dashboard widgets...");
 	await page.waitForTimeout(10000);
 }
@@ -87,7 +97,7 @@ test.describe("I Got Mind - Student Dashboard", () => {
 	test.beforeAll(async ({ browser }) => {
 		console.log("🔑 Setting up authentication...");
 
-		// Create new context (Start Fresh, ignore any global storageState)
+		// Create new context (Start Fresh)
 		const context = await browser.newContext({
 			storageState: undefined,
 			viewport: { width: 1920, height: 1080 },
@@ -102,28 +112,18 @@ test.describe("I Got Mind - Student Dashboard", () => {
 
 		await page.goto("/my-courses/");
 
-		// 🚀 NUCLEAR OPTION: Delete the Cookie Bar from HTML entirely
-		// This prevents it from intercepting clicks on iPhone/Safari
-		await page.evaluate(() => {
-			// 1. Remove the blocking class from the body
-			document.body.classList.remove("gdpr-infobar-visible");
+		// 🚀 STEP 1: Attempt to Accept Cookies (Cleanest way)
+		try {
+			const acceptBtn = page.locator("#moove_gdpr_save_popup_settings_button");
+			if (await acceptBtn.isVisible({ timeout: 2000 })) {
+				await acceptBtn.click({ force: true });
+			}
+		} catch (e) {}
 
-			// 2. Delete the actual bar elements from the DOM
-			const ids = [
-				"#moove_gdpr_cookie_info_bar",
-				".gdpr-infobar-wrapper",
-				".moove-gdpr-info-bar-hidden",
-			];
-			ids.forEach((selector) => {
-				const elements = document.querySelectorAll(selector);
-				elements.forEach((el) => el.remove());
-			});
-		});
-
-		// Force CSS hide just in case
+		// 🚀 STEP 2: CSS Override (Just in case)
 		await page.addStyleTag({
 			content: `
-        #moove_gdpr_cookie_info_bar, .gdpr-infobar-wrapper { display: none !important; pointer-events: none !important; }
+        #moove_gdpr_cookie_info_bar { pointer-events: none !important; display: none !important; }
         body.gdpr-infobar-visible { padding-bottom: 0 !important; }
       `,
 		});
@@ -136,19 +136,15 @@ test.describe("I Got Mind - Student Dashboard", () => {
 			.getByLabel("Password", { exact: false })
 			.fill(process.env.TEST_PASSWORD);
 
-		// 🚀 SUBMIT: Use Keyboard 'Enter' (Safest for Safari)
-		await page.keyboard.press("Enter");
-
-		// Fallback: Force Click the button if 'Enter' didn't work
-		try {
-			await page.waitForTimeout(1000);
-			const submitBtn = page
-				.locator('input[type="submit"], button[type="submit"]')
-				.first();
-			if (await submitBtn.isVisible()) {
-				await submitBtn.click({ force: true });
+		// 🚀 STEP 3: THE "GOD MODE" CLICK
+		// Instead of clicking with the mouse (which gets blocked), we execute JS to trigger the button directly.
+		// This bypasses ALL overlays, popups, and layout shifts.
+		await page.$eval(
+			'input[type="submit"], button[type="submit"]',
+			(button) => {
+				button.click();
 			}
-		} catch (e) {}
+		);
 
 		// Verify Login Success
 		await expect(page.locator("body")).toHaveClass(/logged-in/, {
@@ -162,7 +158,7 @@ test.describe("I Got Mind - Student Dashboard", () => {
 		await context.close();
 	});
 
-	// 4. NESTED GROUP: Only THESE tests use the saved login file
+	// 4. NESTED GROUP
 	test.describe("Authenticated Visual Checks", () => {
 		test.use({ storageState: "storageState.json" });
 
