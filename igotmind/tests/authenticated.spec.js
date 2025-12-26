@@ -21,21 +21,22 @@ async function performSafeScroll(page) {
 	// C. CSS INJECTION (Visual Fixes Only)
 	await page.addStyleTag({
 		content: `
-      /* 1. HIDE Cookie Bar (Don't delete it, just make it invisible/unclickable) */
+      /* 1. FORCE HIDE Cookie Bar & Overlays */
       #moove_gdpr_cookie_info_bar, .gdpr-infobar-wrapper, .moove-gdpr-info-bar-hidden { 
         display: none !important; 
         pointer-events: none !important; 
         opacity: 0 !important;
         visibility: hidden !important;
-        z-index: -1000 !important;
+        z-index: -9999 !important;
       }
       
-      /* 2. UNLOCK Body Scroll */
+      /* 2. UNLOCK Body Scroll (Critical for Mobile) */
       body.gdpr-infobar-visible { 
         overflow: visible !important; 
         position: static !important;
         padding-bottom: 0 !important; 
         height: auto !important;
+        touch-action: auto !important;
       }
 
       /* 3. Force Elementor & Iframes */
@@ -107,6 +108,7 @@ test.describe("I Got Mind - Student Dashboard", () => {
 	test.beforeAll(async ({ browser }) => {
 		console.log("🔑 Setting up authentication...");
 
+		// Create new context (Ignore previous state)
 		const context = await browser.newContext({
 			storageState: undefined,
 			viewport: { width: 1920, height: 1080 },
@@ -119,59 +121,49 @@ test.describe("I Got Mind - Student Dashboard", () => {
 			Object.defineProperty(navigator, "webdriver", { get: () => undefined });
 		});
 
-		// 🚀 STEP 1: Pre-Inject CSS (Like Old Code)
-		// We add this BEFORE navigation so it applies instantly
-		await page.addInitScript(() => {
-			const style = document.createElement("style");
-			style.innerHTML = `
-            #moove_gdpr_cookie_info_bar, .gdpr-infobar-wrapper { display: none !important; pointer-events: none !important; }
-            body.gdpr-infobar-visible { overflow: visible !important; position: static !important; }
-        `;
-			document.head.appendChild(style);
-		});
-
 		await page.goto("/my-courses/");
 
-		// 🚀 STEP 2: Wait for form (Network Idle)
+		// 🚀 STEP 1: Wait for Load
 		await page.waitForLoadState("networkidle");
 
-		// 🚀 STEP 3: "Human Typing" (Like Old Code)
-		// Some forms need 'keydown' events to enable the login button.
-		// 'fill()' is too fast; 'pressSequentially' mimics a user.
+		// 🚀 STEP 2: Aggressive "Body Cleaner"
+		// This constantly removes the blocking class every 500ms while we type
+		// This ensures that even if the site adds it back, we delete it again immediately.
+		const intervalId = setInterval(async () => {
+			try {
+				await page.evaluate(() =>
+					document.body.classList.remove("gdpr-infobar-visible")
+				);
+			} catch (e) {}
+		}, 500);
+
+		// 🚀 STEP 3: "Human Typing"
+		// Click focused the field first, then type slowly
 		await page.getByLabel("Email Address", { exact: false }).click();
 		await page
 			.getByLabel("Email Address", { exact: false })
-			.pressSequentially(process.env.TEST_EMAIL, { delay: 50 });
+			.pressSequentially(process.env.TEST_EMAIL, { delay: 100 });
 
 		await page.getByLabel("Password", { exact: false }).click();
 		await page
 			.getByLabel("Password", { exact: false })
-			.pressSequentially(process.env.TEST_PASSWORD, { delay: 50 });
+			.pressSequentially(process.env.TEST_PASSWORD, { delay: 100 });
 
-		// 🚀 STEP 4: Submit via 'Enter' Key (Safest for Mobile)
-		console.log("⌨️ Pressing Enter...");
-		await page.keyboard.press("Enter");
-
-		// Fallback: If 'Enter' didn't trigger navigation after 3s, use Ghost Click
-		try {
-			await page.waitForTimeout(3000);
-			// Check if we are still on the login page (Login button still exists)
-			const loginBtn = page
-				.locator('input[type="submit"], button[type="submit"]')
-				.first();
-			if (await loginBtn.isVisible()) {
-				console.log("⚠️ Enter key ignored. Forcing JS Click...");
-				await page.$eval('input[type="submit"], button[type="submit"]', (btn) =>
-					btn.click()
-				);
-			}
-		} catch (e) {}
+		// 🚀 STEP 4: JS Submit (Bypasses Overlays)
+		// We execute the click directly in JavaScript. It cannot be blocked by invisible divs.
+		console.log("⚡ Triggering JS Submit...");
+		await page.$eval('input[type="submit"], button[type="submit"]', (btn) => {
+			btn.click();
+		});
 
 		// Verify Login Success
 		console.log("⏳ Waiting for login redirect...");
 		await expect(page.locator("body")).toHaveClass(/logged-in/, {
 			timeout: 60000,
 		});
+
+		// Stop the cleaner loop
+		clearInterval(intervalId);
 
 		// Save State
 		await context.storageState({ path: "storageState.json" });
