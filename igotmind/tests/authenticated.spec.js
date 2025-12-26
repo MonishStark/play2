@@ -3,7 +3,7 @@
 const { test, expect } = require("@playwright/test");
 require("dotenv").config();
 
-// 1. HELPER: Safe Scroll + Fonts + Layout Fix
+// 1. HELPER: Safe Scroll + Fonts + Layout Fix (The "Winning" Logic)
 async function performSafeScroll(page) {
 	// A.1 STEALTH INJECTION
 	await page.addInitScript(() => {
@@ -42,7 +42,7 @@ async function performSafeScroll(page) {
         visibility: visible !important;
       }
 
-      /* 4. WIDGET FIXES */
+      /* 4. WIDGET FIXES (Calendly/PayPal) */
       .calendly-spinner { display: none !important; }
       div[class*="styles-module_campaigns_widget"],
       div[class*="campaigns_widget"],
@@ -68,6 +68,7 @@ async function performSafeScroll(page) {
 	await page.evaluate(async () => {
 		const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 		const totalHeight = document.body.scrollHeight;
+
 		for (let i = 0; i < totalHeight; i += 200) {
 			window.scrollTo(0, i);
 			await delay(100);
@@ -75,7 +76,7 @@ async function performSafeScroll(page) {
 		window.scrollTo(0, 0);
 	});
 
-	// E. Final Buffer
+	// E. Final Buffer: Wait for dashboard widgets
 	console.log("⏳ Waiting 10s for dashboard widgets...");
 	await page.waitForTimeout(10000);
 }
@@ -100,8 +101,7 @@ test.describe("I Got Mind - Student Dashboard", () => {
 	test.beforeAll(async ({ browser }) => {
 		console.log("🔑 Setting up authentication...");
 
-		// 🔴 FIX IS HERE: We MUST explicitly set storageState to undefined
-		// This overrides any global config that is trying to load the missing file.
+		// Create new context (Ignore storageState to start fresh)
 		const context = await browser.newContext({
 			storageState: undefined,
 			viewport: { width: 1920, height: 1080 },
@@ -116,17 +116,24 @@ test.describe("I Got Mind - Student Dashboard", () => {
 
 		await page.goto("/my-courses/");
 
-		// Login Logic
+		// Fill credentials
 		await page
 			.getByLabel("Email Address", { exact: false })
 			.fill(process.env.TEST_EMAIL);
 		await page
 			.getByLabel("Password", { exact: false })
 			.fill(process.env.TEST_PASSWORD);
-		await page.getByRole("button", { name: "Login", exact: false }).click();
 
+		// 🚀 NEW: Robust Button Selector
+		// This targets the actual form button, avoiding header links
+		const loginBtn = page
+			.locator('input[type="submit"], button[type="submit"]')
+			.first();
+		await loginBtn.click();
+
+		// Wait for redirect verification
 		await expect(page.locator("body")).toHaveClass(/logged-in/, {
-			timeout: 30000,
+			timeout: 45000,
 		});
 
 		// Save the file for the next step
@@ -138,7 +145,7 @@ test.describe("I Got Mind - Student Dashboard", () => {
 
 	// 4. NESTED GROUP: Only THESE tests use the file we just created
 	test.describe("Authenticated Visual Checks", () => {
-		// This setting applies ONLY to tests inside this block
+		// Use the login token only for these tests
 		test.use({ storageState: "storageState.json" });
 
 		for (const internalPage of internalPages) {
