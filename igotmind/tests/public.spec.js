@@ -2,7 +2,6 @@
 
 const { test, expect } = require("@playwright/test");
 
-// Global test settings
 test.use({
 	userAgent:
 		"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -10,19 +9,15 @@ test.use({
 	permissions: ["geolocation"],
 });
 
-// ---------- Helper: Stable Scroll & Load ----------
 async function preparePageForScreenshot(page) {
-	// Flag Playwright mode (useful if site wants to mock widgets later)
 	await page.addInitScript(() => {
 		window.__PLAYWRIGHT__ = true;
 	});
 
-	// Wait for fonts
 	await page.evaluate(async () => {
 		await document.fonts.ready;
 	});
 
-	// Disable animations & lazy effects (Elementor-safe)
 	await page.addStyleTag({
 		content: `
       * {
@@ -44,7 +39,6 @@ async function preparePageForScreenshot(page) {
     `,
 	});
 
-	// Slow scroll to trigger lazy loads
 	await page.evaluate(async () => {
 		const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 		const height = document.body.scrollHeight;
@@ -57,11 +51,9 @@ async function preparePageForScreenshot(page) {
 		window.scrollTo(0, 0);
 	});
 
-	// Final settle buffer
 	await page.waitForTimeout(3000);
 }
 
-// ---------- Pages ----------
 const pagesToTest = [
 	{ path: "/", name: "01_Home" },
 	{ path: "/about/", name: "02_About_Us" },
@@ -77,7 +69,6 @@ const pagesToTest = [
 	{ path: "/purchase/", name: "12_Purchase_Flow" },
 ];
 
-// ---------- Tests ----------
 test.describe("I Got Mind – Public Visual Audit", () => {
 	for (const pageInfo of pagesToTest) {
 		test(`Visual: ${pageInfo.name}`, async ({ page }) => {
@@ -88,7 +79,6 @@ test.describe("I Got Mind – Public Visual Audit", () => {
 			await expect(page).toHaveScreenshot({
 				fullPage: true,
 
-				// ✅ MASK THIRD-PARTY WIDGETS (THE FIX)
 				mask: [
 					page.locator('iframe[src*="paypal"]'),
 					page.locator('iframe[src*="calendly"]'),
