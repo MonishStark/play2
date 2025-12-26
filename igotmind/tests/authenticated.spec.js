@@ -3,46 +3,33 @@
 const { test, expect } = require("@playwright/test");
 require("dotenv").config();
 
-// 1. HELPER: Safe Scroll + Fonts + Layout Fix (The "Winning" Logic)
+// 1. HELPER: Safe Scroll + Fonts + Layout Fix
 async function performSafeScroll(page) {
-	// A.1 STEALTH INJECTION
+	// A. STEALTH: Remove "Robot" flags
 	await page.addInitScript(() => {
-		Object.defineProperty(navigator, "webdriver", {
-			get: () => undefined,
-		});
+		Object.defineProperty(navigator, "webdriver", { get: () => undefined });
 	});
 
-	// A.2 WAIT FOR FONTS
+	// B. FONTS: Wait for them to load
 	console.log("🎨 Waiting for custom fonts...");
 	await page.evaluate(async () => {
 		await document.fonts.ready;
 	});
 
-	// B. PRE-EMPTIVE CSS: Force Layout & Visibility
+	// C. LAYOUT: Force Widgets to be visible
 	await page.addStyleTag({
 		content: `
-      /* 1. Kill Cookie Bar */
-      #moove_gdpr_cookie_info_bar { display: none !important; }
+      /* Kill Cookie Bar Visually */
+      #moove_gdpr_cookie_info_bar, .gdpr-infobar-wrapper { display: none !important; }
 
-      /* 2. Force Elementor Content Visible */
-      .elementor-invisible,
-      .elementor-motion-effects-element,
-      .elementor-motion-effects-parent,
-      .elementor-widget-container {
+      /* Force Elementor & Iframes */
+      .elementor-invisible, .elementor-widget-container, iframe {
         opacity: 1 !important;
         visibility: visible !important;
-        transform: none !important;
         animation: none !important;
-        transition: none !important;
       }
 
-      /* 3. Force Iframes Visible */
-      iframe {
-        opacity: 1 !important;
-        visibility: visible !important;
-      }
-
-      /* 4. WIDGET FIXES (Calendly/PayPal) */
+      /* Fix 3rd Party Widgets (PayPal/Calendly) */
       .calendly-spinner { display: none !important; }
       div[class*="styles-module_campaigns_widget"],
       div[class*="campaigns_widget"],
@@ -56,7 +43,7 @@ async function performSafeScroll(page) {
     `,
 	});
 
-	// C. WAKE UP VIDEOS
+	// D. VIDEOS: Eager load
 	await page.evaluate(() => {
 		document.querySelectorAll("iframe").forEach((frame) => {
 			frame.loading = "eager";
@@ -64,11 +51,10 @@ async function performSafeScroll(page) {
 		});
 	});
 
-	// D. SCROLL LOGIC
+	// E. SCROLL: Smooth scroll to trigger lazy loads
 	await page.evaluate(async () => {
 		const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 		const totalHeight = document.body.scrollHeight;
-
 		for (let i = 0; i < totalHeight; i += 200) {
 			window.scrollTo(0, i);
 			await delay(100);
@@ -76,7 +62,7 @@ async function performSafeScroll(page) {
 		window.scrollTo(0, 0);
 	});
 
-	// E. Final Buffer
+	// F. BUFFER: Wait for external widgets
 	console.log("⏳ Waiting 10s for dashboard widgets...");
 	await page.waitForTimeout(10000);
 }
@@ -101,7 +87,7 @@ test.describe("I Got Mind - Student Dashboard", () => {
 	test.beforeAll(async ({ browser }) => {
 		console.log("🔑 Setting up authentication...");
 
-		// Create new context (Ignore storageState to start fresh)
+		// Create new context (Start Fresh)
 		const context = await browser.newContext({
 			storageState: undefined,
 			viewport: { width: 1920, height: 1080 },
@@ -116,20 +102,25 @@ test.describe("I Got Mind - Student Dashboard", () => {
 
 		await page.goto("/my-courses/");
 
-		// 🚀 CRITICAL FIX: Hide Cookie Bar BEFORE clicking Login
-		// This prevents the "Login button is covered" error on Mobile/Safari
+		// 🚀 STEP 1: Handle GDPR Overlay (The Safari Killer)
+		// Attempt to click "Accept" to clear the body class blocking the form
+		try {
+			const acceptBtn = page.locator("#moove_gdpr_save_popup_settings_button");
+			if (await acceptBtn.isVisible({ timeout: 3000 })) {
+				await acceptBtn.click();
+				console.log("🍪 GDPR Cookie Bar Accepted");
+			}
+		} catch (e) {
+			// If not found, ignore and move on
+			console.log("ℹ️ No GDPR bar found or already accepted");
+		}
+
+		// Force hide any remnants via CSS just in case
 		await page.addStyleTag({
-			content: `
-        #moove_gdpr_cookie_info_bar, 
-        .moove-gdpr-info-bar-hidden,
-        .gdpr-infobar-wrapper { 
-           display: none !important; 
-           pointer-events: none !important;
-        }
-      `,
+			content: `#moove_gdpr_cookie_info_bar { display: none !important; pointer-events: none !important; }`,
 		});
 
-		// Fill credentials
+		// 🚀 STEP 2: Fill Credentials
 		await page
 			.getByLabel("Email Address", { exact: false })
 			.fill(process.env.TEST_EMAIL);
@@ -137,27 +128,32 @@ test.describe("I Got Mind - Student Dashboard", () => {
 			.getByLabel("Password", { exact: false })
 			.fill(process.env.TEST_PASSWORD);
 
-		// Click Login (Force click to punch through any remaining overlays)
-		const loginBtn = page
-			.locator('input[type="submit"], button[type="submit"]')
-			.first();
-		await loginBtn.click({ force: true });
+		// 🚀 STEP 3: Submit via Keyboard (Bypasses "Click Intercepted" errors)
+		// Pressing 'Enter' is more robust on Safari than clicking a button covered by invisible divs
+		await page.keyboard.press("Enter");
 
-		// Wait for redirect verification
+		// Fallback: If 'Enter' didn't work after 2s, try clicking the button with Force
+		try {
+			await page.waitForTimeout(2000);
+			if (await page.locator('input[name="wp-submit"]').isVisible()) {
+				await page.locator('input[name="wp-submit"]').click({ force: true });
+			}
+		} catch (e) {}
+
+		// Verify Login Success
 		await expect(page.locator("body")).toHaveClass(/logged-in/, {
 			timeout: 45000,
 		});
 
-		// Save the file for the next step
+		// Save state
 		await context.storageState({ path: "storageState.json" });
 		console.log("✅ Authentication state saved");
 
 		await context.close();
 	});
 
-	// 4. NESTED GROUP: Only THESE tests use the file we just created
+	// 4. TEST GROUP: Uses the saved login
 	test.describe("Authenticated Visual Checks", () => {
-		// Use the login token only for these tests
 		test.use({ storageState: "storageState.json" });
 
 		for (const internalPage of internalPages) {
