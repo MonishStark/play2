@@ -3,7 +3,7 @@
 const { test, expect } = require("@playwright/test");
 require("dotenv").config();
 
-// 1. HELPER: Safe Scroll + Fonts + Layout Fix
+// 1. HELPER: Safe Scroll + Fonts + Layout Fix (The "Winning" Logic)
 async function performSafeScroll(page) {
 	// A. STEALTH: Remove "Robot" flags
 	await page.addInitScript(() => {
@@ -16,7 +16,7 @@ async function performSafeScroll(page) {
 		await document.fonts.ready;
 	});
 
-	// C. LAYOUT: Force Widgets to be visible
+	// C. LAYOUT: Force Widgets to be visible & consistent
 	await page.addStyleTag({
 		content: `
       /* Kill Cookie Bar Visually */
@@ -87,7 +87,7 @@ test.describe("I Got Mind - Student Dashboard", () => {
 	test.beforeAll(async ({ browser }) => {
 		console.log("🔑 Setting up authentication...");
 
-		// Create new context (Start Fresh)
+		// Create new context (Start Fresh, ignore any global storageState)
 		const context = await browser.newContext({
 			storageState: undefined,
 			viewport: { width: 1920, height: 1080 },
@@ -102,25 +102,33 @@ test.describe("I Got Mind - Student Dashboard", () => {
 
 		await page.goto("/my-courses/");
 
-		// 🚀 STEP 1: Handle GDPR Overlay (The Safari Killer)
-		// Attempt to click "Accept" to clear the body class blocking the form
-		try {
-			const acceptBtn = page.locator("#moove_gdpr_save_popup_settings_button");
-			if (await acceptBtn.isVisible({ timeout: 3000 })) {
-				await acceptBtn.click();
-				console.log("🍪 GDPR Cookie Bar Accepted");
-			}
-		} catch (e) {
-			// If not found, ignore and move on
-			console.log("ℹ️ No GDPR bar found or already accepted");
-		}
+		// 🚀 NUCLEAR OPTION: Delete the Cookie Bar from HTML entirely
+		// This prevents it from intercepting clicks on iPhone/Safari
+		await page.evaluate(() => {
+			// 1. Remove the blocking class from the body
+			document.body.classList.remove("gdpr-infobar-visible");
 
-		// Force hide any remnants via CSS just in case
-		await page.addStyleTag({
-			content: `#moove_gdpr_cookie_info_bar { display: none !important; pointer-events: none !important; }`,
+			// 2. Delete the actual bar elements from the DOM
+			const ids = [
+				"#moove_gdpr_cookie_info_bar",
+				".gdpr-infobar-wrapper",
+				".moove-gdpr-info-bar-hidden",
+			];
+			ids.forEach((selector) => {
+				const elements = document.querySelectorAll(selector);
+				elements.forEach((el) => el.remove());
+			});
 		});
 
-		// 🚀 STEP 2: Fill Credentials
+		// Force CSS hide just in case
+		await page.addStyleTag({
+			content: `
+        #moove_gdpr_cookie_info_bar, .gdpr-infobar-wrapper { display: none !important; pointer-events: none !important; }
+        body.gdpr-infobar-visible { padding-bottom: 0 !important; }
+      `,
+		});
+
+		// Fill Credentials
 		await page
 			.getByLabel("Email Address", { exact: false })
 			.fill(process.env.TEST_EMAIL);
@@ -128,15 +136,17 @@ test.describe("I Got Mind - Student Dashboard", () => {
 			.getByLabel("Password", { exact: false })
 			.fill(process.env.TEST_PASSWORD);
 
-		// 🚀 STEP 3: Submit via Keyboard (Bypasses "Click Intercepted" errors)
-		// Pressing 'Enter' is more robust on Safari than clicking a button covered by invisible divs
+		// 🚀 SUBMIT: Use Keyboard 'Enter' (Safest for Safari)
 		await page.keyboard.press("Enter");
 
-		// Fallback: If 'Enter' didn't work after 2s, try clicking the button with Force
+		// Fallback: Force Click the button if 'Enter' didn't work
 		try {
-			await page.waitForTimeout(2000);
-			if (await page.locator('input[name="wp-submit"]').isVisible()) {
-				await page.locator('input[name="wp-submit"]').click({ force: true });
+			await page.waitForTimeout(1000);
+			const submitBtn = page
+				.locator('input[type="submit"], button[type="submit"]')
+				.first();
+			if (await submitBtn.isVisible()) {
+				await submitBtn.click({ force: true });
 			}
 		} catch (e) {}
 
@@ -152,7 +162,7 @@ test.describe("I Got Mind - Student Dashboard", () => {
 		await context.close();
 	});
 
-	// 4. TEST GROUP: Uses the saved login
+	// 4. NESTED GROUP: Only THESE tests use the saved login file
 	test.describe("Authenticated Visual Checks", () => {
 		test.use({ storageState: "storageState.json" });
 
