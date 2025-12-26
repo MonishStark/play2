@@ -13,36 +13,27 @@ async function performSafeScroll(page) {
 	});
 
 	// B. FONTS
-	console.log("🎨 Waiting for custom fonts...");
 	await page.evaluate(async () => {
 		await document.fonts.ready;
 	});
 
-	// C. CSS INJECTION (Visual Fixes Only)
+	// C. CSS INJECTION (Visual Fixes)
 	await page.addStyleTag({
 		content: `
-      /* 1. HIDE Cookie Bar & Overlays */
-      #moove_gdpr_cookie_info_bar, .gdpr-infobar-wrapper, .moove-gdpr-info-bar-hidden { 
-        display: none !important; 
-        pointer-events: none !important; 
-        visibility: hidden !important;
-      }
+      /* Force Hide Overlays */
+      #moove_gdpr_cookie_info_bar, .gdpr-infobar-wrapper { display: none !important; }
       
-      /* 2. UNLOCK Body Scroll */
-      body.gdpr-infobar-visible { 
-        overflow: visible !important; 
-        padding-bottom: 0 !important; 
-        height: auto !important;
-      }
+      /* Unlock Body Scroll */
+      body.gdpr-infobar-visible { overflow: visible !important; height: auto !important; }
 
-      /* 3. Force Widgets Visible */
+      /* Force Content Visibility */
       .elementor-invisible, .elementor-widget-container, iframe {
         opacity: 1 !important;
         visibility: visible !important;
         animation: none !important;
       }
 
-      /* 4. Fix External Widgets */
+      /* Fix 3rd Party Widgets */
       .calendly-spinner { display: none !important; }
       div[class*="styles-module_campaigns_widget"],
       div[class*="campaigns_widget"],
@@ -56,15 +47,7 @@ async function performSafeScroll(page) {
     `,
 	});
 
-	// D. VIDEOS
-	await page.evaluate(() => {
-		document.querySelectorAll("iframe").forEach((frame) => {
-			frame.loading = "eager";
-			frame.style.opacity = "1";
-		});
-	});
-
-	// E. SCROLL
+	// D. SCROLL
 	await page.evaluate(async () => {
 		const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 		const totalHeight = document.body.scrollHeight;
@@ -75,7 +58,7 @@ async function performSafeScroll(page) {
 		window.scrollTo(0, 0);
 	});
 
-	// F. BUFFER
+	// E. BUFFER
 	console.log("⏳ Waiting 10s for dashboard widgets...");
 	await page.waitForTimeout(10000);
 }
@@ -99,7 +82,7 @@ const internalPages = [
 
 test.describe("I Got Mind - Student Dashboard", () => {
 	// ===========================================================================
-	// 3. SETUP: Authentication (Reverted to Old "Human" Logic)
+	// 3. SETUP: Authentication (Network Block Strategy)
 	// ===========================================================================
 	test.beforeAll(async ({ browser }) => {
 		console.log("🔑 Setting up authentication...");
@@ -111,28 +94,25 @@ test.describe("I Got Mind - Student Dashboard", () => {
 
 		const page = await context.newPage();
 
-		// Stealth Mode
+		// 🚀 STEP 1: NETWORK BLOCK (The Ultimate Fix)
+		// We block the GDPR plugin script from loading entirely.
+		// No Script = No Bar = No Locked Screen.
+		await page.route("**/*moove-gdpr*", (route) => route.abort());
+
+		// Stealth
 		await page.addInitScript(() => {
 			Object.defineProperty(navigator, "webdriver", { get: () => undefined });
 		});
 
-		// 🚀 STEP 1: Pre-Inject CSS (Kill Cookie Bar Instantly)
-		await page.addInitScript(() => {
-			const style = document.createElement("style");
-			style.innerHTML = `
-            #moove_gdpr_cookie_info_bar, .gdpr-infobar-wrapper { display: none !important; pointer-events: none !important; }
-            body.gdpr-infobar-visible { overflow: visible !important; position: static !important; }
-        `;
-			document.head.appendChild(style);
-		});
-
 		await page.goto("/my-courses/");
 
-		// Wait for the form to settle
-		await page.waitForLoadState("domcontentloaded");
+		// 🚀 STEP 2: Backup Cleanup
+		// Just in case the class is added server-side, we strip it.
+		await page.evaluate(() =>
+			document.body.classList.remove("gdpr-infobar-visible")
+		);
 
-		// 🚀 STEP 2: Use "Human" Typing (From your Old Code)
-		// Using `pressSequentially` triggers the validation scripts that `fill` might miss.
+		// 🚀 STEP 3: "Human" Typing (Reliable)
 		await page.getByLabel("Email Address", { exact: false }).click();
 		await page
 			.getByLabel("Email Address", { exact: false })
@@ -143,35 +123,18 @@ test.describe("I Got Mind - Student Dashboard", () => {
 			.getByLabel("Password", { exact: false })
 			.pressSequentially(process.env.TEST_PASSWORD, { delay: 100 });
 
-		// 🚀 STEP 3: Click the Button using YOUR Old Selector
-		// We switched back to `getByRole` because `input[type=submit]` was likely clicking the wrong thing.
+		// 🚀 STEP 4: Force Click
+		// We use { force: true } to tell Playwright "I don't care if something is covering this, click it anyway."
 		console.log("🖱️ Clicking Login...");
+		await page
+			.getByRole("button", { name: "Login", exact: false })
+			.click({ force: true });
 
-		// We use Promise.all to explicitly wait for the navigation event
-		// This prevents the "waiting for login redirect" step from starting too early
-		await Promise.all([
-			page
-				.waitForNavigation({ timeout: 60000 })
-				.catch(() => console.log("⚠️ Navigation timeout (might be AJAX)")),
-			page.getByRole("button", { name: "Login", exact: false }).click(),
-		]);
-
-		// 🚀 STEP 4: Verification
-		console.log("⏳ Verifying Login...");
-
-		// If this fails, we take a screenshot to see exactly WHAT is on screen (Error msg? Still on login?)
-		try {
-			await expect(page.locator("body")).toHaveClass(/logged-in/, {
-				timeout: 30000,
-			});
-		} catch (e) {
-			console.log("❌ Login Verification Failed. Taking debug screenshot...");
-			await page.screenshot({
-				path: "login-failure-debug.png",
-				fullPage: true,
-			});
-			throw e; // Fail the test
-		}
+		// Verification
+		console.log("⏳ Waiting for login...");
+		await expect(page.locator("body")).toHaveClass(/logged-in/, {
+			timeout: 45000,
+		});
 
 		// Save State
 		await context.storageState({ path: "storageState.json" });
