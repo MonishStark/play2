@@ -18,28 +18,31 @@ async function performSafeScroll(page) {
 		await document.fonts.ready;
 	});
 
-	// C. CSS INJECTION
+	// C. CSS INJECTION (Visual Fixes Only)
 	await page.addStyleTag({
 		content: `
+      /* 1. HIDE Cookie Bar & Overlays */
       #moove_gdpr_cookie_info_bar, .gdpr-infobar-wrapper, .moove-gdpr-info-bar-hidden { 
         display: none !important; 
         pointer-events: none !important; 
-        opacity: 0 !important;
         visibility: hidden !important;
-        z-index: -9999 !important;
       }
+      
+      /* 2. UNLOCK Body Scroll */
       body.gdpr-infobar-visible { 
         overflow: visible !important; 
-        position: static !important;
         padding-bottom: 0 !important; 
         height: auto !important;
-        touch-action: auto !important;
       }
+
+      /* 3. Force Widgets Visible */
       .elementor-invisible, .elementor-widget-container, iframe {
         opacity: 1 !important;
         visibility: visible !important;
         animation: none !important;
       }
+
+      /* 4. Fix External Widgets */
       .calendly-spinner { display: none !important; }
       div[class*="styles-module_campaigns_widget"],
       div[class*="campaigns_widget"],
@@ -96,7 +99,7 @@ const internalPages = [
 
 test.describe("I Got Mind - Student Dashboard", () => {
 	// ===========================================================================
-	// 3. SETUP: Authentication (The Fix is Here)
+	// 3. SETUP: Authentication (Reverted to Old "Human" Logic)
 	// ===========================================================================
 	test.beforeAll(async ({ browser }) => {
 		console.log("🔑 Setting up authentication...");
@@ -108,70 +111,67 @@ test.describe("I Got Mind - Student Dashboard", () => {
 
 		const page = await context.newPage();
 
-		// Stealth
+		// Stealth Mode
 		await page.addInitScript(() => {
 			Object.defineProperty(navigator, "webdriver", { get: () => undefined });
 		});
 
+		// 🚀 STEP 1: Pre-Inject CSS (Kill Cookie Bar Instantly)
+		await page.addInitScript(() => {
+			const style = document.createElement("style");
+			style.innerHTML = `
+            #moove_gdpr_cookie_info_bar, .gdpr-infobar-wrapper { display: none !important; pointer-events: none !important; }
+            body.gdpr-infobar-visible { overflow: visible !important; position: static !important; }
+        `;
+			document.head.appendChild(style);
+		});
+
 		await page.goto("/my-courses/");
 
-		// 🚀 STEP 1: Wait for Network Idle
-		await page.waitForLoadState("networkidle");
+		// Wait for the form to settle
+		await page.waitForLoadState("domcontentloaded");
 
-		// 🚀 STEP 2: Constant Body Cleaning (Keep the bar away)
-		const intervalId = setInterval(async () => {
-			try {
-				await page.evaluate(() =>
-					document.body.classList.remove("gdpr-infobar-visible")
-				);
-			} catch (e) {}
-		}, 500);
-
-		// 🚀 STEP 3: "Slow Human" Typing
-		// We wait slightly after typing to let the form validation scripts turn "green"
+		// 🚀 STEP 2: Use "Human" Typing (From your Old Code)
+		// Using `pressSequentially` triggers the validation scripts that `fill` might miss.
 		await page.getByLabel("Email Address", { exact: false }).click();
 		await page
 			.getByLabel("Email Address", { exact: false })
 			.pressSequentially(process.env.TEST_EMAIL, { delay: 100 });
-		await page.waitForTimeout(500); // Wait for validation
 
 		await page.getByLabel("Password", { exact: false }).click();
 		await page
 			.getByLabel("Password", { exact: false })
 			.pressSequentially(process.env.TEST_PASSWORD, { delay: 100 });
-		await page.waitForTimeout(500); // Wait for validation
 
-		// 🚀 STEP 4: Standard Click with Stability Check
+		// 🚀 STEP 3: Click the Button using YOUR Old Selector
+		// We switched back to `getByRole` because `input[type=submit]` was likely clicking the wrong thing.
 		console.log("🖱️ Clicking Login...");
-		const loginBtn = page
-			.locator('input[type="submit"], button[type="submit"]')
-			.first();
 
-		// Ensure button is ready to receive clicks
-		await loginBtn.waitFor({ state: "visible", timeout: 5000 });
+		// We use Promise.all to explicitly wait for the navigation event
+		// This prevents the "waiting for login redirect" step from starting too early
+		await Promise.all([
+			page
+				.waitForNavigation({ timeout: 60000 })
+				.catch(() => console.log("⚠️ Navigation timeout (might be AJAX)")),
+			page.getByRole("button", { name: "Login", exact: false }).click(),
+		]);
 
-		// Standard click (triggers all site scripts)
-		await loginBtn.click();
+		// 🚀 STEP 4: Verification
+		console.log("⏳ Verifying Login...");
 
-		// Verify Login Success
-		console.log("⏳ Waiting for login redirect...");
-
-		// We add a check for Error Messages to debug if it fails again
+		// If this fails, we take a screenshot to see exactly WHAT is on screen (Error msg? Still on login?)
 		try {
 			await expect(page.locator("body")).toHaveClass(/logged-in/, {
-				timeout: 45000,
+				timeout: 30000,
 			});
-		} catch (error) {
-			// If login fails, check if there is a visible error message on screen
-			const errorMsg = await page
-				.locator(".lifterlms-error, .error, .alert")
-				.textContent()
-				.catch(() => "No error text found");
-			console.log("⚠️ Login Failed. Screen says: ", errorMsg);
-			throw error; // Re-throw to fail the test properly
+		} catch (e) {
+			console.log("❌ Login Verification Failed. Taking debug screenshot...");
+			await page.screenshot({
+				path: "login-failure-debug.png",
+				fullPage: true,
+			});
+			throw e; // Fail the test
 		}
-
-		clearInterval(intervalId);
 
 		// Save State
 		await context.storageState({ path: "storageState.json" });
