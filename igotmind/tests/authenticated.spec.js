@@ -96,12 +96,14 @@ const internalPages = [
 ];
 
 test.describe("I Got Mind - Student Dashboard", () => {
-	// 3. SETUP: Runs FIRST. Does NOT use storageState (because it creates it).
+	// 3. SETUP: Runs FIRST.
 	test.beforeAll(async ({ browser }) => {
 		console.log("🔑 Setting up authentication...");
 
-		// Create a generic context (No storageState loaded here)
+		// 🔴 FIX IS HERE: We MUST explicitly set storageState to undefined
+		// This overrides any global config that is trying to load the missing file.
 		const context = await browser.newContext({
+			storageState: undefined,
 			viewport: { width: 1920, height: 1080 },
 		});
 
@@ -136,7 +138,7 @@ test.describe("I Got Mind - Student Dashboard", () => {
 
 	// 4. NESTED GROUP: Only THESE tests use the file we just created
 	test.describe("Authenticated Visual Checks", () => {
-		// 🚀 KEY FIX: This setting now applies ONLY to this inner block
+		// This setting applies ONLY to tests inside this block
 		test.use({ storageState: "storageState.json" });
 
 		for (const internalPage of internalPages) {
